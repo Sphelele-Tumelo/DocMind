@@ -1,3 +1,10 @@
 *.pth
 *.bin
 *.onnx
+*.env
+.env/
+__pycache__/
+*.log
+*.tmp
+*.cache
+# Ignore model checkpoints and large files
