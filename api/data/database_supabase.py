@@ -2,9 +2,12 @@ from fastapi import Depends, HTTPException
 from supabase import create_client, Client
 import os
 from dotenv import load_dotenv
+from pathlib import Path
 
 
-load_dotenv()  # Load environment variables from .env file
+# Load environment variables from .env file in the api directory
+env_path = Path(__file__).parent.parent / ".env"
+load_dotenv(dotenv_path=env_path)
 
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
