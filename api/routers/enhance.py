@@ -3,7 +3,9 @@ from supabase import Client
 from fastapi.responses import StreamingResponse
 from ..services.enhance_service import ESRGANEnhanceService
 from ..data.database_supabase import get_db
+from ..models.text_extraction_model import FixTextRequest
 import io
+import openai
 from datetime import datetime
 import uuid
 import traceback
@@ -12,6 +14,39 @@ router = APIRouter(prefix="/enhance", tags=["Enhancement"])
 
 def get_enhance_service():
     return ESRGANEnhanceService()
+
+
+
+@router.post("/fix-text")
+async def fix_ocr_text(
+    request: FixTextRequest,
+    db: Client = Depends(get_db),
+    # Add Pro check later
+):
+    # Get raw OCR from DB
+    scan = db.table("scans").select("ocr_text").eq("id", request.scan_id).single().execute()
+    if not scan.data:
+        raise HTTPException(404, "Scan not found")
+
+    raw_text = scan.data["ocr_text"]
+
+    # LLM prompt (use openai or gemini)
+    prompt = f"Clean this raw OCR text from a receipt/document: {raw_text}. Fix errors, format nicely (merchant, date, items, totals). Do NOT invent info."
+
+    response = openai.ChatCompletion.create(  # or gemini/grok
+        model="gpt-5-mini",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.2
+    )
+    cleaned = response.choices[0].message.content.strip()
+
+    # Update scan in DB
+    db.table("scans").update({
+        "ai_fixed_text": cleaned,
+        "status": "ai_fixed"
+    }).eq("id", request.scan_id).execute()
+
+    return {"status": "success", "cleaned_text": cleaned}
 
 @router.post("/")
 async def enhance_and_save(
@@ -61,7 +96,7 @@ async def enhance_and_save(
     # Save metadata to scans table (using correct column names from your screenshot)
     try:
         db.table("scans").insert({
-            "useruid": "temp-user-uuid-placeholder",  # ← change to real user ID later
+            "useruid": uuid.uuid4(),  # ← change to real user ID later
             "original_filename": file.filename,
             "original_url": original_path,            # ← save the path
             "enhanced_url": enhanced_path,            # ← save the path

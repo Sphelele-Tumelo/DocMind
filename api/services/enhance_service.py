@@ -19,4 +19,11 @@ class ESRGANEnhanceService:
             return output.getvalue()
         except Exception as e:
             raise ValueError(f"Image enhancement failed: {str(e)}")
+        
+    def extract_ocr_text(self, image_bytes: bytes) -> str:
+        result = self.ocr.ocr(image_bytes)
+        if result:
+            text = "\n".join([line[1][0] for res in result for line in res])
+            return text
+        return "No text found"
             
