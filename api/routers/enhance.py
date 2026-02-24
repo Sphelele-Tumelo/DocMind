@@ -5,12 +5,15 @@ from ..services.enhance_service import ESRGANEnhanceService
 from ..data.database_supabase import get_db
 from ..models.text_extraction_model import FixTextRequest
 import io
+from ..services.llm_service import LLMService
 import openai
+import logging
 from datetime import datetime
 import uuid
 import traceback
 
 router = APIRouter(prefix="/enhance", tags=["Enhancement"])
+logging = logging.getLogger("enhance_router")
 
 def get_enhance_service():
     return ESRGANEnhanceService()
@@ -23,8 +26,16 @@ async def fix_ocr_text(
     db: Client = Depends(get_db),
     # Add Pro check later
 ):
-    # Get raw OCR from DB
-    scan = db.table("scans").select("ocr_text").eq("id", request.scan_id).single().execute()
+    # validate that the UUID passed is valid (pydantic already has done this),
+    # but supabase/sql may still raise if the column type mismatches. wrap
+    # the query so we can propagate a 400 instead of letting 500 bubble up.
+    try:
+        scan = db.table("scans").select("ocr_text").eq("id", str(request.scan_id)).single().execute()
+    except Exception as e:
+        logging.exception("database query failed")
+        # most likely the user sent something that can't be compared to uuid
+        raise HTTPException(status_code=400, detail="Invalid scan_id")
+
     if not scan.data:
         raise HTTPException(404, "Scan not found")
 
@@ -61,9 +72,9 @@ async def enhance_and_save(
 
     # Enhance the image
     try:
-        enhanced_bytes = service.enhance_image(contents)
+        enhanced_bytes = await service.enhance_image(contents)
     except Exception as e:
-        print("Enhancement failed:\n", traceback.format_exc())
+        logging.exception("Enhancement failed")
         raise HTTPException(status_code=500, detail=f"Enhancement failed: {str(e)}")
 
     # Generate unique paths for storage
@@ -122,3 +133,9 @@ async def enhance_and_save(
 @router.get("/health")
 async def health_check():
     return {"status": "healthy", "enhance_service": "available"}
+
+@router.post("/test-llm")
+async def test_llm(text:str, llm_service: LLMService = Depends(LLMService)):
+    cleaned = await llm_service.clean_text(text)
+    return {"cleaned": cleaned}
+    
