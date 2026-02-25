@@ -13,10 +13,10 @@ class OpenAIProvider(BaseLLMProvider):
     
     async def clean_text(self, text):
         try:
+            # The OpenAI API expects a `messages` list (plural), not `message`.
             response = await self.client.chat.completions.create(
-                
                 model=settings.OPENAI_MODEL,
-                message = [
+                messages=[
                     {
                         "role": "system",
                         "content": (
@@ -25,12 +25,8 @@ class OpenAIProvider(BaseLLMProvider):
                             "Make sure you preserve all the original information, but correct any mistakes and format it nicely. Output should be in a clear, structured format that is easy to read."
                             "Return only the cleaned text, without any explanations or additional commentary."
                         ),
-                        
                     },
-                    {
-                        "role": "user", "content": text
-                    },
-                    
+                    {"role": "user", "content": text},
                 ],
                 temperature=0.0,
                 timeout=30

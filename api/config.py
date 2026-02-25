@@ -1,11 +1,11 @@
-# pydantic_settings isn't installed in the current environment, and
-# pydantic's own BaseSettings works for our simple needs.
-from pydantic import BaseSettings
+# Pydantic v2 moved BaseSettings into the pydantic-settings package.
+# Install it in the environment and import from there to avoid errors.
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     OPEN_API_KEY: str
-    OPEN_MODEL: str = "gpt-5-mini"
+    OPENAI_MODEL: str = "gpt-4o-mini"
 
     class Config:
         env_file = ".env"
