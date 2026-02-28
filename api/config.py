@@ -4,8 +4,8 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    OPEN_API_KEY: str
-    OPENAI_MODEL: str = "gpt-4o-mini"
+    GEMINI_API_KEY: str
+    GEMINI_MODEL: str = "gemini-1.5-flash"
 
     class Config:
         env_file = ".env"
