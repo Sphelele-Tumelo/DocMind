@@ -6,6 +6,7 @@ from ..data.database_supabase import get_db
 from ..models.text_extraction_model import FixTextRequest
 import io
 from ..services.llm_service import LLMService
+from ..models.update_scan import UpdateScanRequest
 import openai
 import logging
 from datetime import datetime
@@ -18,6 +19,30 @@ logging = logging.getLogger("enhance_router")
 def get_enhance_service():
     return ESRGANEnhanceService()
 
+
+
+
+router = APIRouter(prefix="/scans", tags=["Scans"])
+
+# GET all scans (for the current user)
+@router.get("/")
+async def get_all_scans(db: Client = Depends(get_db)):
+    try:
+        response = db.table("scans").select("*").execute()
+        return response.data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# GET one scan by ID
+@router.get("/{scan_id}")
+async def get_scan(scan_id: str, db: Client = Depends(get_db)):
+    try:
+        response = db.table("scans").select("*").eq("id", scan_id).single().execute()
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Scan not found")
+        return response.data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/fix-text")
@@ -72,7 +97,7 @@ async def enhance_and_save(
 
     # Enhance the image
     try:
-        enhanced_bytes = await service.enhance_image(contents)
+        enhanced_bytes =  service.enhance_image(contents)
     except Exception as e:
         logging.exception("Enhancement failed")
         raise HTTPException(status_code=500, detail=f"Enhancement failed: {str(e)}")
@@ -105,19 +130,27 @@ async def enhance_and_save(
         raise HTTPException(status_code=500, detail=f"Enhanced upload failed: {str(e)}")
 
     # Save metadata to scans table (using correct column names from your screenshot)
+    # Inside your /enhance endpoint, after both uploads succeed
     try:
-        db.table("scans").insert({
-            "useruid": uuid.uuid4(),  # ← change to real user ID later
+        insert_data = {
+            "user_id": str(uuid.uuid4()),           # ← correct column name + real UUID
             "original_filename": file.filename,
-            "original_url": original_path,            # ← save the path
-            "enhanced_url": enhanced_path,            # ← save the path
-            "status": "enhanced"         # or full public URL if needed
-            # "ocr_text": None,                       # add once you have OCR
+            
+            "status": "enhanced",
+            "enhanced_url": enhanced_path,          # path in storage
+            # "ocr_text": raw_ocr,                # add when you have OCR
             # "ai_fixed_text": None,
-        }).execute()
+        }
+
+        response = db.table("scans").insert(insert_data).execute()
+
+        if not response.data:
+            raise ValueError("Insert returned no data — something went wrong")
+        
     except Exception as e:
-        print("DB insert failed:\n", traceback.format_exc())
-        # Don't fail the whole request if DB insert fails (optional)
+      print(f"DB Insert Error: {str(e)}")   # print so you see it
+      raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+          # Don't fail the whole request if DB insert fails (optional)
 
     # Return the enhanced image as stream (best for large images)
     enhanced_stream = io.BytesIO(enhanced_bytes)
@@ -130,9 +163,56 @@ async def enhance_and_save(
             "Content-Disposition": f"inline; filename=enhanced_{file.filename}"
         }
     )
+    
+@router.put("/{scan_id}")
+async def update_scan(
+    scan_id: str,
+    update_data: UpdateScanRequest,
+    db: Client = Depends(get_db)
+):
+    try:
+        # Only update fields that were sent
+        payload = update_data.dict(exclude_unset=True)
+        if not payload:
+            raise HTTPException(400, "No fields to update")
+
+        response = db.table("scans").update(payload).eq("id", scan_id).execute()
+        
+        if not response.data:
+            raise HTTPException(404, "Scan not found")
+
+        return {"message": "Scan updated", "updated_scan": response.data[0]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/test-enhance")
+async def test_enhance(service: ESRGANEnhanceService = Depends()):
+    # This is just a test endpoint to verify the enhancement service is working
+    try:
+        with open("test_images/test_receipt.jpg", "rb") as f:
+            contents = f.read()
+        enhanced_bytes = await service.enhance_image(contents)
+        return StreamingResponse(io.BytesIO(enhanced_bytes), media_type="image/png")
+    except Exception as e:
+        logging.exception("Test enhancement failed")
+        raise HTTPException(status_code=500, detail=f"Test enhancement failed: {str(e)}")
+
+@router.delete("/{scan_id}")
+async def delete_scan(scan_id: str, db: Client = Depends(get_db)):
+    try:
+        response = db.table("scans").delete().eq("id", scan_id).execute()
+        
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Scan not found or already deleted")
+
+        return {"message": f"Scan {scan_id} deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/health")
 async def health_check():
     return {"status": "healthy", "enhance_service": "available"}
+
 
 @router.post("/test-llm")
 async def test_llm(text:str, llm_service: LLMService = Depends(LLMService)):
